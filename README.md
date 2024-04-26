@@ -8,11 +8,14 @@
 
 - Python 3.11 or newer
 	
-### Activate Environment:
-- Navigate to the Code Compass Folder:
+## Activate Environment:
+
+### Navigate to the Code Compass Folder:
 - cd path/to/your/CMPSC470_COMPASS
+  
 ### Windows:
 - .\env\Scripts\activate
+  
 ### MacOS:
 - source env/bin/activate
 
