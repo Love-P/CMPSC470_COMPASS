@@ -1,73 +1,78 @@
 import re
 
+TOKENS = [
+    ('NUMBER', r'\d+'),
+    ('STRING', r'"[^"]*"|\'[^\']*\''),
+    ('ASSIGN', r'\bset\b'),
+    ('TO', r'\bto\b'),
+    ('PRINT', r'\bprint\b'),
+    ('ADD', r'\badd\b'),
+    ('SUBTRACT', r'\bsub\b'),
+    ('MULTIPLY', r'\bmult\b'),
+    ('DIVIDE', r'\bdiv\b'),
+    ('IDENT', r'[a-zA-Z_][a-zA-Z_0-9]*'),
+    ('IF', r'\bif\b'),
+    ('ELSE', r'\belse\b'),
+    ('EQUAL', r'=='),
+    ('NOTEQUAL', r'!='),
+    ('GREATER', r'>'),
+    ('LESS', r'<'),
+    ('GREATEREQ', r'>='),
+    ('LESSEQ', r'<='),
+    ('HELP', r'\bhelp\b'),
+    ('SKIP', r'[ \t]+'),
+    ('NEWLINE', r'\n'),
+    ('SEMICOLON', r';'),
+    ('COLON', r':'),
+    ('MISMATCH', r'.'),
+]
+
 def lexer(code):
     token_regex = '|'.join(f'(?P<{name}>{pattern})' for name, pattern in TOKENS)
-    line_number = 1
     token_list = []
     for mo in re.finditer(token_regex, code):
         kind = mo.lastgroup
         value = mo.group().lower()  # Normalize to lowercase
         if kind == 'NUMBER':
             value = int(value)
-        elif kind == 'STRING':
-            value = value[1:-1]
-        elif kind == 'SKIP' or kind == 'NEWLINE':
+        elif kind in ['SKIP', 'NEWLINE']:
             continue
-        token_list.append((kind, value, line_number))
+        token_list.append((kind, value))
     return token_list
-
-TOKENS = [
-    ('NUMBER',    r'\d+'),
-    ('STRING',    r'"[^"]*"|\'[^\']*\''),
-    ('ASSIGN',    r'\bset\b'),
-    ('TO',        r'\bto\b'),
-    ('PRINT',     r'\bprint\b'),
-    ('ADD',       r'\badd\b'),
-    ('SUBTRACT',  r'\bsub\b'),
-    ('MULTIPLY',  r'\bmult\b'),
-    ('DIVIDE',    r'\bdiv\b'),
-    ('IDENT',     r'[a-zA-Z_][a-zA-Z_0-9]*'),
-    ('HELP',      r'\bhelp\b'),
-    ('SKIP',      r'[ \t]+'),
-    ('NEWLINE',   r'\n'),
-    ('MISMATCH',  r'.'),
-]
 
 class Interpreter:
     def __init__(self):
         self.variables = {}
-        self.commands = ["set", "print", "add", "sub", "mult", "div", "help", "clear", "exit"]
+        self.commands = [
+            "set", "print", "add", "sub", "mult", "div",
+            "if", "else", "help", "clear", "exit"
+        ]
 
     def clear(self):
         self.variables.clear()
+        print("Environment cleared.")
 
     def execute(self, tokens):
         it = iter(tokens)
         try:
             while True:
                 token = next(it)
-                if token[0] in ['SKIP', 'NEWLINE']:
-                    continue
-                if token[0] == 'MISMATCH' or token[1] not in self.commands:
-                    print(f"Unrecognized command '{token[1]}'. Type 'help' for command list.")
-                    return
-
                 if token[1] == 'set':
                     self.handle_assignment(it)
                 elif token[1] == 'print':
                     self.handle_print(it)
                 elif token[1] in ['add', 'sub', 'mult', 'div']:
                     self.handle_math_operation(token[1], it)
+                elif token[1] == 'if':
+                    self.handle_if(it)
                 elif token[1] == 'help':
                     self.print_help()
                 elif token[1] == 'clear':
                     self.clear()
-                    print("Environment cleared.")
                 elif token[1] == 'exit':
                     exit()
-                break  # Break after processing a command
         except StopIteration:
-            print("Incomplete command. Please check your syntax.")
+            pass
 
     def handle_assignment(self, it):
         identifier = next(it)
@@ -86,42 +91,85 @@ class Interpreter:
             return
         var_name = var_name_token[1]
         if var_name in self.variables:
-            print(self.variables[var_name])
+            print(str(self.variables[var_name]))  # Ensure the variable is converted to a string
         else:
             print(f"Undefined variable '{var_name}'.")
 
     def handle_math_operation(self, operation, it):
-        operand1 = next(it)
-        to_token = next(it)  # This captures the 'to' in your command.
-        operand2 = next(it)
+        operand1_token = next(it)
+        to_token = next(it)  # This should be the 'to' token
+        operand2_token = next(it)
 
-        op1 = self.variables.get(operand1[1], operand1[1]) if operand1[0] == 'IDENT' else operand1[1]
-        op2 = self.variables.get(operand2[1], operand2[1]) if operand2[0] == 'IDENT' else operand2[1]
+        operand1 = self.variables.get(operand1_token[1], operand1_token[1])
+        operand2 = self.variables.get(operand2_token[1], operand2_token[1])
+        if isinstance(operand1, str) and operand1.isdigit():
+            operand1 = int(operand1)
+        if isinstance(operand2, str) and operand2.isdigit():
+            operand2 = int(operand2)
+
         try:
-            result = 0
             if operation == 'add':
-                result = op1 + op2
+                result = operand1 + operand2
             elif operation == 'sub':
-                result = op1 - op2
+                result = operand1 - operand2
             elif operation == 'mult':
-                result = op1 * op2
+                result = operand1 * operand2
             elif operation == 'div':
-                if op2 == 0:
+                if operand2 == 0:
                     print("Error: Division by zero")
                     return
-                result = op1 / op2
+                result = operand1 / operand2
             print(f"The result of {operation} is {result}")
         except TypeError as e:
             print(f"Error: {e} - check that both operands are numbers or properly defined variables.")
+
+    def handle_if(self, it):
+        condition = self.evaluate_condition(it)  # Get the condition
+        next(it)  # Skip the colon token
+        if condition:
+            self.execute_inline(it)
+
+    def evaluate_condition(self, it):
+        operand1_token = next(it)
+        operator = next(it)[1]
+        operand2_token = next(it)
+
+        operand1 = self.variables.get(operand1_token[1], operand1_token[1])
+        operand2 = self.variables.get(operand2_token[1], operand2_token[1])
+        if isinstance(operand1, str) and operand1.isdigit():
+            operand1 = int(operand1)
+        if isinstance(operand2, str) and operand2.isdigit():
+            operand2 = int(operand2)
+
+        if operator == '>':
+            return operand1 > operand2
+        elif operator == '<':
+            return operand1 < operand2
+        elif operator == '==':
+            return operand1 == operand2
+        elif operator == '!=':
+            return operand1 != operand2
+        elif operator == '>=':
+            return operand1 >= operand2
+        elif operator == '<=':
+            return operand1 <= operand2
+        else:
+            raise ValueError("Unsupported operator")
+
+    def execute_inline(self, it):
+        token = next(it)
+        if token[1] == 'print':
+            self.handle_print(it)
 
     def print_help(self):
         print("Available commands:")
         print("  set <var> to <value> - Assigns a value to a variable")
         print("  print <var> - Prints the value of a variable")
-        print("  add <arg1> <arg2> - Adds two values")
-        print("  sub <arg1> <arg2> - Subtracts second from the first")
-        print("  mult <arg1> <arg2> - Multiplies two values")
-        print("  div <arg1> <arg2> - Divides the first by the second")
+        print("  add <arg1> to <arg2> - Adds two values")
+        print("  sub <arg1> to <arg2> - Subtracts second from the first")
+        print("  mult <arg1> to <arg2> - Multiplies two values")
+        print("  div <arg1> to <arg2> - Divides the first by the second")
+        print("  if <condition>: <command> - Executes a command if the condition is true")
         print("  clear - Clears all variables")
         print("  help - Displays this help message")
         print("  exit - Exits the program")
